@@ -1,0 +1,64 @@
+[project]
+name = "citekeep"
+version = "0.1.0"
+description = "Keep a personal BibTeX library, and keep project bibliographies in sync with it"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Nicolas Klutchnikoff" }]
+keywords = ["bibtex", "bibliography", "latex", "zbmath", "mathematics"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+    "Programming Language :: Python :: 3",
+]
+
+# No runtime dependencies, on purpose.
+#
+# Everything is standard library: urllib for the zbMATH API, tomllib for the
+# config file, re for parsing. This keeps `uv tool install citekeep` instant,
+# with nothing to compile and no version conflicts — which matters for a tool
+# aimed at researchers rather than developers.
+dependencies = []
+
+[project.optional-dependencies]
+# Read by Read the Docs through `extra_requirements` in .readthedocs.yaml,
+# which cannot see [dependency-groups].
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
+    # mkdocstrings formats rendered signatures with Ruff when it is available.
+    "ruff",
+]
+
+[project.urls]
+Homepage = "https://github.com/klutchnikoff/citekeep"
+Documentation = "https://citekeep.readthedocs.io/"
+Repository = "https://github.com/klutchnikoff/citekeep"
+Issues = "https://github.com/klutchnikoff/citekeep/issues"
+
+[project.scripts]
+citekeep = "citekeep.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+# The recorded demo is 875 kB and the machinery that produces it needs Emacs
+# and VHS: neither is required to build or use the package.
+exclude = ["docs/assets/*.gif", "demo/"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/citekeep"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"editors/emacs/citekeep.el" = "citekeep/editor/citekeep.el"
+
+[tool.ruff.lint]
+# FLY002 wants an f-string where `" ".join((...))` gathers seven record fields
+# into one haystack. Seven interpolations read worse than seven names.
+ignore = ["FLY002"]

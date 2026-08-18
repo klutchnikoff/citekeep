@@ -1,0 +1,253 @@
+;;; citekeep-tests.el --- Tests for citekeep.el -*- lexical-binding: t; -*-
+
+(require 'ert)
+(load (expand-file-name "citekeep.el"
+                        (file-name-directory (or load-file-name buffer-file-name)))
+      nil t)
+
+(ert-deftest citekeep-test-bib-key-at-point ()
+  (with-temp-buffer
+    (insert "@article{Smi23,\n  title = {Adaptive estimation},\n}\n")
+    (goto-char (point-max))
+    (search-backward "Adaptive")
+    (should (equal (citekeep--bib-key-at-point) "Smi23"))))
+
+(ert-deftest citekeep-test-default-insertion-keeps-the-editor-buffer ()
+  (with-temp-buffer
+    (insert "See ")
+    (let ((marker (copy-marker (point) t))
+          (citekeep-insert-citation-function #'citekeep--insert-cite-default))
+      (citekeep--insert-cite marker "citep" "Smi23")
+      (should (equal (buffer-string) "See \\citep{Smi23}"))
+      (set-marker marker nil))))
+
+(ert-deftest citekeep-test-citar-adapter-passes-the-materialized-key ()
+  (with-temp-buffer
+    (latex-mode)
+    (let ((marker (copy-marker (point) t)) captured)
+      (cl-letf (((symbol-function 'require)
+                 (lambda (feature &rest _arguments)
+                   (eq feature 'citar-latex)))
+                ((symbol-function 'citar-latex-insert-citation)
+                 (lambda (keys invert command)
+                   (setq captured (list keys invert command)))))
+        (citekeep-citar-insert-citation marker "citep" "Smi23")
+        (should (equal captured '(("Smi23") nil "citep"))))
+      (set-marker marker nil))))
+
+(ert-deftest citekeep-test-citar-adapter-recognizes-auctex-latex-mode ()
+  "Doom's LaTeX module normally uses AUCTeX's capitalised major mode."
+  (with-temp-buffer
+    (let ((major-mode 'LaTeX-mode)
+          (marker (copy-marker (point) t))
+          captured)
+      (cl-letf (((symbol-function 'require)
+                 (lambda (feature &rest _arguments)
+                   (eq feature 'citar-latex)))
+                ((symbol-function 'citar-latex-insert-citation)
+                 (lambda (keys invert command)
+                   (setq captured (list keys invert command)))))
+        (citekeep-citar-insert-citation marker "autocite" "Smi23")
+        (should (equal captured '(("Smi23") nil "autocite"))))
+      (set-marker marker nil))))
+
+(ert-deftest citekeep-test-search-label-carries-local-state-and-key ()
+  (let ((item '((origin . "local")
+                (citation_key . "Smi23")
+                (authors . "Smith")
+                (authors_full . "Smith, Alice and Doe, Bob")
+                (year . "2023")
+                (title . "Adaptive estimation"))))
+    (should (string-prefix-p "●" (citekeep--insert-label item)))
+    (should-not (string-match-p (regexp-opt '("Project" "Library"))
+                                (citekeep--insert-label item)))
+    (should (string-match-p "Smi23" (citekeep--insert-label item)))
+    (should (string-match-p "Doe, Bob"
+                            (citekeep--insert-label item)))))
+
+(ert-deftest citekeep-test-search-label-marks-a-master-record-as-hollow ()
+  (let ((item '((origin . "master")
+                (citation_key . "Smi23")
+                (authors . "Smith")
+                (year . "2023")
+                (title . "Adaptive estimation"))))
+    (should (string-prefix-p "○" (citekeep--insert-label item)))))
+
+(ert-deftest citekeep-test-insert-sort-keeps-local-before-master-and-web ()
+  (let* ((local-item '((origin . "local") (citation_key . "Local")))
+         (master-a '((origin . "master") (citation_key . "MasterA")))
+         (master-b '((origin . "master") (citation_key . "MasterB")))
+         (local-label (citekeep--insert-label local-item))
+         (master-a-label (citekeep--insert-label master-a))
+         (master-b-label (citekeep--insert-label master-b))
+         (online "🌐 Search online…")
+         (table `((,local-label . ,local-item)
+                  (,master-a-label . ,master-a)
+                  (,master-b-label . ,master-b))))
+    (should
+     (equal (citekeep--insert-sort-candidates
+             (list master-b-label online local-label master-a-label)
+             table online)
+            (list local-label master-b-label master-a-label online)))))
+
+(ert-deftest citekeep-test-insert-selects-a-local-hit-in-one-completion ()
+  (with-temp-buffer
+    (let ((citekeep-bib-file-function (lambda () "/tmp/project.bib"))
+          (item '((origin . "local")
+                  (citation_key . "Tsybakov2009")
+                  (authors . "Tsybakov")
+                  (authors_full . "Tsybakov, Alexandre B.")
+                  (year . "2009")
+                  (title . "Introduction to Nonparametric Estimation")))
+          captured)
+      (cl-letf (((symbol-function 'citekeep--save-file-buffer) #'ignore)
+                ((symbol-function 'citekeep--json)
+                 (lambda (_args)
+                   (cons 0 `((local . (,item)) (master . nil)))))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _arguments)
+                   (seq-find (lambda (candidate)
+                               (string-match-p "Tsybakov" candidate))
+                             collection)))
+                ((symbol-function 'citekeep--insert-hit)
+                 (lambda (chosen file _marker command)
+                   (setq captured (list chosen file command)))))
+        (citekeep-insert nil "cite")
+        (should (equal captured (list item "/tmp/project.bib" "cite")))))))
+
+(ert-deftest citekeep-test-raw-completion-input-continues-online ()
+  (with-temp-buffer
+    (let ((citekeep-bib-file-function (lambda () "/tmp/project.bib"))
+          captured)
+      (cl-letf (((symbol-function 'citekeep--save-file-buffer) #'ignore)
+                ((symbol-function 'citekeep--json)
+                 (lambda (_args)
+                   '(0 . ((local . nil) (master . nil)))))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _arguments) "Tsybakov minimax"))
+                ((symbol-function 'citekeep-fetch)
+                 (lambda (query command)
+                   (setq captured (list query command)))))
+        (citekeep-insert nil "citet")
+        (should (equal captured '("Tsybakov minimax" "citet")))))))
+
+(ert-deftest citekeep-test-insert-escape-is-a-silent-no-op ()
+  (with-temp-buffer
+    (insert "Initial text")
+    (let ((initial-point (point))
+          (citekeep-bib-file-function (lambda () "/tmp/project.bib"))
+          cancelled side-effect)
+      (cl-letf (((symbol-function 'citekeep--save-file-buffer) #'ignore)
+                ((symbol-function 'citekeep--json)
+                 (lambda (_args)
+                   '(0 . ((local . nil) (master . nil)))))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _arguments) (signal 'quit nil)))
+                ((symbol-function 'citekeep--insert-hit)
+                 (lambda (&rest _arguments) (setq side-effect 'insert)))
+                ((symbol-function 'citekeep-fetch)
+                 (lambda (&rest _arguments) (setq side-effect 'fetch))))
+        (let ((citekeep-cancel-hook
+               (list (lambda () (setq cancelled (point))))))
+          (citekeep-insert nil "cite"))
+        (should (equal (buffer-string) "Initial text"))
+        (should (= (point) initial-point))
+        (should (= cancelled initial-point))
+        (should-not side-effect)))))
+
+(ert-deftest citekeep-test-online-result-escape-writes-nothing ()
+  (with-temp-buffer
+    (let ((marker (copy-marker (point) t))
+          cancelled taken)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _arguments) (signal 'quit nil)))
+                ((symbol-function 'citekeep--search-take)
+                 (lambda (&rest _arguments) (setq taken t))))
+        (let ((citekeep-cancel-hook (list (lambda () (setq cancelled t)))))
+          (citekeep--search-choose
+           '((source . "zbmath")
+             (results . (((key . "remote") (title . "Remote result")))))
+           "/tmp/project.bib" marker "citep"))
+        (should cancelled)
+        (should-not taken)
+        (should-not (marker-buffer marker))))))
+
+(ert-deftest citekeep-test-fetch-query-escape-does-not-start-network ()
+  (with-temp-buffer
+    (let (cancelled started)
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (&rest _arguments) (signal 'quit nil)))
+                ((symbol-function 'citekeep--call-async)
+                 (lambda (&rest _arguments) (setq started t))))
+        (let ((citekeep-cancel-hook (list (lambda () (setq cancelled t)))))
+          (citekeep-fetch nil "cite"))
+        (should cancelled)
+        (should-not started)))))
+
+(ert-deftest citekeep-test-online-result-refreshes-project-bibliography ()
+  (with-temp-buffer
+    (let ((marker (copy-marker (point) t))
+          events)
+      (cl-letf (((symbol-function 'citekeep--call-with-input)
+                 (lambda (&rest _arguments)
+                   '(0
+                     "{\"schema_version\":1,\"written\":{\"action\":\"added\",\"file\":\"/tmp/refs.bib\"},\"match\":{\"key\":\"remote_2024\"}}"
+                     "")))
+                ((symbol-function 'citekeep--refresh-file-buffer)
+                 (lambda (file) (push (list 'refresh file) events)))
+                ((symbol-function 'citekeep--insert-cite)
+                 (lambda (_marker command key)
+                   (push (list 'insert command key) events))))
+        (citekeep--search-take
+         '((entry . "@article{remote_2024}")
+           (match . ((kind . "new"))))
+         "/tmp/refs.bib" marker "citep")
+        (should
+         (equal (nreverse events)
+                '((refresh "/tmp/refs.bib")
+                  (insert "citep" "remote_2024"))))
+        (should-not (marker-buffer marker))))))
+
+(ert-deftest citekeep-test-field-arbitration-produces-explicit-sync-arguments ()
+  (let ((conflicts '(((local_key . "Smi23")
+                      (fields . (((name . "year")
+                                  (master . "2022")
+                                  (local . "2023"))))))))
+    (cl-letf (((symbol-function 'read-char-choice)
+               (lambda (&rest _arguments) ?l)))
+      (should (equal (citekeep--choose-field-resolutions conflicts)
+                     '("--use-local" "Smi23:year"))))))
+
+(ert-deftest citekeep-test-field-arbitration-cancel-is-all-or-nothing ()
+  (let ((conflicts '(((local_key . "Smi23")
+                      (fields . (((name . "year")
+                                  (master . "2022")
+                                  (local . "2023"))))))))
+    (cl-letf (((symbol-function 'read-char-choice)
+               (lambda (&rest _arguments) ?q)))
+      (should-not (citekeep--choose-field-resolutions conflicts)))))
+
+(ert-deftest citekeep-test-identity-arbitration-reruns-sync-with-review-file ()
+  (with-temp-buffer
+    (citekeep-resolve-mode)
+    (setq citekeep--conflicts
+          '(((incoming . ((key . "Foreign")))))
+          citekeep--answers '(("Foreign" "same" . "master_key"))
+          citekeep--resolve-root "/project"
+          citekeep--resolve-file "/project/refs.bib")
+    (let (captured)
+      (cl-letf (((symbol-function 'citekeep--sync-command)
+                 (lambda (root apply answers file)
+                   (setq captured
+                         (list root apply file
+                               (with-temp-buffer
+                                 (insert-file-contents answers)
+                                 (buffer-string))))
+                   nil)))
+        (citekeep-resolve-apply)
+        (should (equal captured
+                       '("/project" t "/project/refs.bib"
+                         "same Foreign master_key\n")))))))
+
+(provide 'citekeep-tests)
+;;; citekeep-tests.el ends here

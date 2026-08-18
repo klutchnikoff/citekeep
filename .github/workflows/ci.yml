@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A new push supersedes the run still in flight for the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: ruff check
+        run: uv run --frozen ruff check --output-format=github .
+      - name: ruff format
+        run: uv run --frozen ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      # CITEKEEP_NETWORK_TESTS is deliberately not set: the suite must not
+      # turn red because zbMATH is slow or down. Those tests are run by hand
+      # when the source adapters change.
+      - name: pytest
+        run: uv run --frozen pytest -q
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # --strict fails on any warning, which is what catches a docstring
+      # documenting a parameter that carries no type annotation, a nav entry
+      # pointing at a page that does not exist, or a dead internal link.
+      # Read the Docs builds with fail_on_warning too, so a green run here
+      # means the published documentation will build.
+      - name: mkdocs build
+        run: uv run --frozen --extra docs mkdocs build --strict
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: build
+        run: uv build
+      # Catches a README that PyPI would refuse to render long before the
+      # version number is spent.
+      - name: twine check
+        run: uvx twine check --strict dist/*

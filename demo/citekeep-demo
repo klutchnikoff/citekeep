@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+demo_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(CDPATH= cd -- "$demo_directory/.." && pwd)
+PYTHONPATH="$repository_root/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+
+exec python3 -c \
+  'import sys; from citekeep.cli import main; sys.exit(main())' "$@"

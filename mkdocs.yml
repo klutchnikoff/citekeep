@@ -1,0 +1,72 @@
+site_name: citekeep
+site_description: Keep a personal BibTeX library, and keep project bibliographies in step with it
+site_url: https://citekeep.readthedocs.io/
+
+repo_url: https://github.com/klutchnikoff/citekeep
+repo_name: citekeep
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - search.highlight
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            members_order: source
+            separate_signature: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Install: install.md
+  - Tutorial:
+      - Your first synchronised project: tutorial/first-project.md
+      - Starting from scattered files: tutorial/scattered-files.md
+  - Guides:
+      - Citing while you write: guides/citing.md
+      - Resolving conflicts: guides/conflicts.md
+      - Working with co-authors: guides/coauthors.md
+      - Occasional maintenance: guides/maintenance.md
+  - Reference:
+      - Commands: reference/cli.md
+      - Configuration: reference/configuration.md
+      - Python API: reference/api.md
+  - Explanation:
+      - Why keep a master: explanation/why-a-master.md
+      - What citekeep is not: explanation/scope.md
+      - Deciding what counts as one work: explanation/identity.md
+      - Why zbMATH first: explanation/zbmath.md
+      - Design invariants: explanation/invariants.md
