@@ -1,5 +1,10 @@
 # citekeep
 
+[![CI](https://github.com/klutchnikoff/citekeep/actions/workflows/ci.yml/badge.svg)](https://github.com/klutchnikoff/citekeep/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/citekeep.svg)](https://pypi.org/project/citekeep/)
+[![Python](https://img.shields.io/pypi/pyversions/citekeep.svg)](https://pypi.org/project/citekeep/)
+[![Documentation](https://readthedocs.org/projects/citekeep/badge/?version=latest)](https://citekeep.readthedocs.io/)
+
 **Clean a reference once. Reuse it in every LaTeX project.**
 
 You write several papers at once, with different co-authors. Each has its own
