@@ -1,0 +1,73 @@
+name: Publish
+
+# Trusted publishing: PyPI validates a short-lived OIDC token minted by GitHub
+# for this repository, this workflow file and this environment. No API token is
+# stored anywhere. The matching "pending publisher" must be declared on PyPI
+# *before* the first run, since the project does not exist yet.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Index to publish to
+        default: testpypi
+        type: choice
+        options: [testpypi, pypi]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    # The name must match the environment declared to the index, or the token
+    # is refused. A tag push always means the real thing.
+    environment:
+      name: ${{ github.event_name == 'push' && 'pypi' || inputs.repository }}
+
+    permissions:
+      id-token: write # mandatory for trusted publishing
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Nothing stops `git tag v0.2.0` on a tree whose pyproject.toml still
+      # says 0.1.0. Without this, that publishes 0.1.0 under a 0.2.0 tag, or
+      # fails because 0.1.0 is already taken — and a version number, once
+      # spent, can never be reused.
+      - name: Check the tag matches the project version
+        if: github.event_name == 'push'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(python3 -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag ${tag} does not match project version ${version}"
+            exit 1
+          fi
+          echo "tag ${tag} matches project version"
+
+      # Publishing an untested tree is the one mistake with no undo.
+      - name: Test
+        run: uv run --frozen pytest -q
+
+      - name: Build
+        run: uv build
+
+      - name: Check the distributions
+        run: uvx twine check --strict dist/*
+
+      - name: Publish to TestPyPI
+        if: github.event_name == 'workflow_dispatch' && inputs.repository == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish to PyPI
+        if: github.event_name == 'push' || inputs.repository == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
