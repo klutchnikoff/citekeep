@@ -41,7 +41,10 @@ Issues = "https://github.com/klutchnikoff/citekeep/issues"
 citekeep = "citekeep.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+# ruff belongs here rather than only in the `docs` extra: the lint job runs
+# `uv run ruff`, which sees this group and not that extra. The lock file pins
+# it, so a new ruff release cannot turn the build red on its own.
+dev = ["pytest>=8", "ruff>=0.14"]
 
 [build-system]
 requires = ["hatchling"]
