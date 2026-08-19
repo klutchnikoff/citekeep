@@ -655,6 +655,23 @@ def surname(author):
     return words[-1]
 
 
+def title_words(title, count=1):
+    """The first COUNT significant words of TITLE, slugged.
+
+    Naming a record and recognising one both begin by asking a title for its
+    opening words. They want different numbers of them, and there is no reason
+    for them to disagree about which words those are.
+    """
+    words = []
+    for raw in re.findall(r"[A-Za-zÀ-ÿ]+", title or ""):
+        word = slug(raw)
+        if word and word not in KEY_STOPWORDS:
+            words.append(word)
+            if len(words) == count:
+                break
+    return tuple(words)
+
+
 def citation_key(authors, year, title):
     """Build ``author_word_year``.
 
@@ -665,15 +682,8 @@ def citation_key(authors, year, title):
     AUTHORS is a list of author fields, in either BibTeX name order.
     """
     last = slug(surname(authors[0])) if authors else ""
-    word = next(
-        (
-            slug(w)
-            for w in re.findall(r"[A-Za-zÀ-ÿ]+", title or "")
-            if slug(w) and slug(w) not in KEY_STOPWORDS
-        ),
-        "",
-    )
-    return f"{last or 'anon'}_{word or 'untitled'}_{year or 'nd'}"
+    words = title_words(title, 1)
+    return f"{last or 'anon'}_{words[0] if words else 'untitled'}_{year or 'nd'}"
 
 
 # Order in which fields are written. Anything unlisted follows, sorted, so a

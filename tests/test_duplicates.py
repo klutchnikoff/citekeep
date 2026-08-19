@@ -459,16 +459,34 @@ def test_a_refuted_pair_forms_no_group():
 def test_a_third_record_resembling_both_still_makes_one_group():
     """Refutation removes an edge, not a record.
 
-    An entry compatible with two the evidence separates draws them back into
-    one group — and that group is a real question, not an artefact.
+    Three entries share a stem. Two of them are refuted — two DOIs, two
+    author sets — but the third contradicts neither and draws them back into
+    one group, which is a real question rather than an artefact.
     """
-    undecided = entry(
-        "bertin_adaptive_2020b",
-        author="Bertin, Karine",
-        title="Adaptive density estimation on bounded domains under mixing conditions",
-        year="2020",
+    one, two, undecided = records(
+        entry(
+            "a",
+            author="Doe, Jane and Roe, Richard",
+            title="Adaptive density estimation",
+            year="2020",
+            doi="10.1/a",
+        ),
+        entry(
+            "b",
+            author="Doe, Jane and Poe, Paula",
+            title="Adaptive density estimation",
+            year="2020",
+            doi="10.1/b",
+        ),
+        entry(
+            "c",
+            author="Doe, Jane",
+            title="Adaptive density estimation",
+            year="2020",
+        ),
     )
-    groups = duplicates.find_groups(records(BERTIN_ONE, BERTIN_TWO, undecided))
+    assert duplicates.refuted(one, two)
+    groups = duplicates.find_groups([one, two, undecided])
     assert len(groups) == 1
     assert len(groups[0]) == 3
     assert duplicates.coherence(groups[0]) == "several DOIs"

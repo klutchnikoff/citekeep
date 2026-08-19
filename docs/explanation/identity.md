@@ -16,11 +16,17 @@ have none.
 became, once the title has been reworked and the year has moved. Most tools
 miss this case entirely and end up holding both.
 
-**Normalised key.** `surname_word_year`, built the same way from every source,
-so the same paper fetched twice lands in the same place regardless of who
-typed the original entry.
+**A stem: first author, year, and the two opening title words.** A coarse
+bucket, so that the same paper fetched from two sources meets itself even when
+neither copy carries an identifier, regardless of who typed the original entry.
 
-**First author and title.** For everything carrying no identifier at all.
+Two words of title rather than one, because the citation key — which keeps one
+— puts every "Adaptive…" paper an author published in a year into the same
+place, and a *derived name* is not evidence about works. Measured on a
+1904-entry library, widening the stem to two words drops three such collisions
+and loses no real duplicate; a third word finds nothing more.
+
+**First author and full title.** For everything carrying no identifier at all.
 
 ## How they combine
 
