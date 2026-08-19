@@ -1,6 +1,6 @@
 [project]
 name = "citekeep"
-version = "0.1.0"
+version = "0.1.1"
 description = "Keep a personal BibTeX library, and keep project bibliographies in sync with it"
 readme = "README.md"
 requires-python = ">=3.11"
