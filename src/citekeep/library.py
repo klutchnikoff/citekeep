@@ -264,8 +264,17 @@ def free_key(index_, base):
     raise ValueError(f"no free key left for {base}")
 
 
-def _settle(index_, record, match, verb, target):
-    """Apply one decision to one conflict.  Returns (kind, payload)."""
+def settle(index_, record, match, verb, target):
+    """Apply one decision to one conflict.  Returns (kind, payload).
+
+    VERB is one of `VERBS`. The payload is what the plan carries for that
+    kind: an `Addition`, an `Enrichment`, a `Conflict`, or a bare key. Callers
+    filing a single record want `settle_match` instead.
+
+    This is the single place where a decision becomes an outcome. Both the
+    synchroniser and the editor's one-record path go through it, so that
+    `distinct` allocates the next free suffix by one rule rather than two.
+    """
     if verb == "skip":
         return "skip", record.key
     if verb == "distinct":
@@ -295,6 +304,34 @@ def _settle(index_, record, match, verb, target):
     return "enrich", Enrichment(existing.key, record, fields)
 
 
+def _named(records, key):
+    return next(record for record in records if record.key == key)
+
+
+def settle_match(index_, record, match, verb, target):
+    """Apply one decision to MATCH, and describe the result as a `Match`.
+
+    The counterpart of `settle` for callers that file one record rather than
+    plan many: an editor knows what a `Match` means, and has no use for the
+    plan's `Addition` and `Enrichment` payloads.
+    """
+    kind, payload = settle(index_, record, match, verb, target)
+    if kind == "new":
+        return Match("new", payload.key)
+    if kind == "skip":
+        return Match("skip", payload)
+    if kind == "unchanged":
+        return Match("unchanged", payload, (_named(match.existing, payload),))
+    if kind == "enrich":
+        return Match(
+            "enrich",
+            payload.key,
+            (_named(match.existing, payload.key),),
+            payload.fields,
+        )
+    return Match("conflict", payload.key, payload.existing, reason=payload.reason)
+
+
 def plan_proposals(library, incoming, resolutions=None):
     """Work out what adding INCOMING to LIBRARY would do.
 
@@ -321,7 +358,7 @@ def plan_proposals(library, incoming, resolutions=None):
         else:
             verb, target = resolutions.get(record.key, (None, None))
             if verb in VERBS:
-                kind, payload = _settle(index_, record, match, verb, target)
+                kind, payload = settle(index_, record, match, verb, target)
             else:
                 payload = Conflict(match.key, record, match.existing, match.reason)
 

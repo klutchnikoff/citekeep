@@ -27,7 +27,11 @@ of the single list.
 ## `citekeep-fetch`
 
 Goes online directly, when you know the reference is not yours yet. Takes a
-DOI, an arXiv identifier, or free words.
+DOI, an arXiv identifier, or free words. If the chosen result resembles an
+existing record without being identifiable safely, Emacs asks whether it is
+the same work, a distinct work, or should be skipped. A distinct work receives
+the next free `a`, `b`, … suffix from citekeep; the editor does not invent a
+key itself.
 
 ## `citekeep-verify-entry`
 

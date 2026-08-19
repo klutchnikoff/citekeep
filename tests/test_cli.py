@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from citekeep import bib, cli, duplicates
+from citekeep import bib, cli, duplicates, sync
 from citekeep import verify as verification
 
 
@@ -110,6 +110,186 @@ def test_editor_add_places_a_record_under_the_library_key(paths, monkeypatch):
         == 0
     )
     assert "doe_adaptive_2019" in target.read_text()
+
+
+def test_editor_add_materialises_master_values_and_only_completes_its_gaps(
+    paths, monkeypatch
+):
+    """An online spelling must not become a project/master disagreement."""
+    tmp_path, master = paths
+    target = tmp_path / "refs.bib"
+    feed(
+        monkeypatch,
+        entry(
+            "whatever",
+            title="Adaptive estimation",
+            year="2019",
+            doi="10.1/right",
+            journal="The Annals of Statistics",
+            pages="1--20",
+        ),
+    )
+    assert (
+        cli.main(
+            ["editor", "add-record", "--into", str(target), "--library", str(master)]
+        )
+        == 0
+    )
+    text = target.read_text()
+    assert "journal = {Ann. Statist.}" in text
+    assert "pages = {1--20}" in text
+    assert "The Annals of Statistics" not in text
+    follow_up = sync.plan(master.read_text(), text, {})
+    assert not follow_up.conflicts
+    assert follow_up.master_enrichments == ("doe_adaptive_2019",)
+
+
+def test_editor_add_can_resolve_a_key_collision_as_distinct(paths, monkeypatch, capsys):
+    tmp_path, master = paths
+    target = tmp_path / "refs.bib"
+    feed(
+        monkeypatch,
+        entry(
+            "remote",
+            title="Adaptive smoothing",
+            year="2019",
+            doi="10.1/other",
+        ),
+    )
+    assert (
+        cli.main(
+            [
+                "editor",
+                "add-record",
+                "--into",
+                str(target),
+                "--library",
+                str(master),
+                "--decision",
+                "distinct",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["match"]["kind"] == "new"
+    assert data["match"]["key"] == "doe_adaptive_2019a"
+    assert data["written"]["key"] == "doe_adaptive_2019a"
+    assert "@article{doe_adaptive_2019a," in target.read_text()
+
+
+def test_editor_add_can_skip_a_conflict(paths, monkeypatch, capsys):
+    tmp_path, master = paths
+    target = tmp_path / "refs.bib"
+    feed(
+        monkeypatch,
+        entry(
+            "remote",
+            title="Adaptive smoothing",
+            year="2019",
+            doi="10.1/other",
+        ),
+    )
+    assert (
+        cli.main(
+            [
+                "editor",
+                "add-record",
+                "--into",
+                str(target),
+                "--library",
+                str(master),
+                "--decision",
+                "skip",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["match"]["kind"] == "skip"
+    assert data["written"] is None
+    assert not target.exists()
+
+
+def test_editor_add_honours_skip_even_when_nothing_looks_conflicted(
+    paths, monkeypatch, capsys
+):
+    """A refusal does not depend on a classification.
+
+    The editor asks about the conflict it saw when the record was fetched;
+    the command reclassifies afterwards. If the files moved in between and
+    nothing resembles the record any more, the answer still stands.
+    """
+    tmp_path, master = paths
+    target = tmp_path / "refs.bib"
+    feed(
+        monkeypatch,
+        entry(
+            "shannon_mathematical_1948",
+            title="A Mathematical Theory of Communication",
+            year="1948",
+            doi="10.1002/j.1538-7305.1948.tb01338.x",
+        ),
+    )
+    assert (
+        cli.main(
+            [
+                "editor",
+                "add-record",
+                "--into",
+                str(target),
+                "--library",
+                str(master),
+                "--decision",
+                "skip",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["match"]["kind"] == "skip"
+    assert data["written"] is None
+    assert not target.exists()
+
+
+def test_editor_add_can_resolve_a_conflict_as_the_same_work(paths, monkeypatch, capsys):
+    tmp_path, master = paths
+    target = tmp_path / "refs.bib"
+    feed(
+        monkeypatch,
+        entry(
+            "remote",
+            title="Adaptive estimation",
+            year="2019",
+            doi="10.1/other",
+        ),
+    )
+    assert (
+        cli.main(
+            [
+                "editor",
+                "add-record",
+                "--into",
+                str(target),
+                "--library",
+                str(master),
+                "--decision",
+                "same",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["match"]["kind"] == "unchanged"
+    assert data["match"]["key"] == "doe_adaptive_2019"
+    text = target.read_text()
+    body = next(bib.iter_entries(text))[3]
+    assert bib.get_field(body, "doi") == "10.1/right"
+    assert "10.1/other" not in text
 
 
 def test_editor_add_refuses_a_record_that_needs_a_decision(paths, monkeypatch):

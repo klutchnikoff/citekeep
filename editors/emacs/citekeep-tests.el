@@ -208,6 +208,92 @@
                   (insert "citep" "remote_2024"))))
         (should-not (marker-buffer marker))))))
 
+(ert-deftest citekeep-test-online-conflict-can-be-filed-as-distinct ()
+  (with-temp-buffer
+    (let ((marker (copy-marker (point) t))
+          captured inserted)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _arguments) "Distinct work"))
+                ((symbol-function 'citekeep--call-with-input)
+                 (lambda (_entry args)
+                   (setq captured args)
+                   '(0
+                     "{\"schema_version\":1,\"written\":{\"action\":\"added\",\"file\":\"/tmp/refs.bib\",\"key\":\"doe_adaptive_2019a\"},\"match\":{\"kind\":\"new\",\"key\":\"doe_adaptive_2019a\",\"existing\":[]}}"
+                     "")))
+                ((symbol-function 'citekeep--refresh-file-buffer) #'ignore)
+                ((symbol-function 'citekeep--insert-cite)
+                 (lambda (_marker command key)
+                   (setq inserted (list command key)))))
+        (citekeep--search-take
+         '((year . "2019")
+           (title . "Adaptive smoothing")
+           (entry . "@article{remote}")
+           (match . ((kind . "conflict")
+                     (reason . "several DOIs")
+                     (existing . (((key . "doe_adaptive_2019")))))))
+         "/tmp/refs.bib" marker "citep")
+        (should (member "--decision" captured))
+        (should (member "distinct" captured))
+        (should (equal inserted '("citep" "doe_adaptive_2019a")))
+        (should-not (marker-buffer marker))))))
+
+(ert-deftest citekeep-test-online-conflict-can-be-skipped ()
+  (with-temp-buffer
+    (let ((marker (copy-marker (point) t))
+          inserted)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _arguments) "Skip"))
+                ((symbol-function 'citekeep--call-with-input)
+                 (lambda (&rest _arguments)
+                   '(0
+                     "{\"schema_version\":1,\"written\":null,\"match\":{\"kind\":\"skip\",\"key\":\"remote\",\"existing\":[]}}"
+                     "")))
+                ((symbol-function 'citekeep--insert-cite)
+                 (lambda (&rest _arguments) (setq inserted t))))
+        (citekeep--search-take
+         '((year . "2019")
+           (title . "Adaptive smoothing")
+           (entry . "@article{remote}")
+           (match . ((kind . "conflict")
+                     (reason . "several DOIs")
+                     (existing . nil))))
+         "/tmp/refs.bib" marker "citep")
+        (should-not inserted)
+        (should-not (marker-buffer marker))))))
+
+(ert-deftest citekeep-test-online-conflict-can-name-the-same-master-record ()
+  (with-temp-buffer
+    (let ((marker (copy-marker (point) t))
+          captured inserted)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (prompt &rest _arguments)
+                   (if (string-prefix-p "Identity conflict" prompt)
+                       "Same work"
+                     "master_b")))
+                ((symbol-function 'citekeep--call-with-input)
+                 (lambda (_entry args)
+                   (setq captured args)
+                   '(0
+                     "{\"schema_version\":1,\"written\":{\"action\":\"added\",\"file\":\"/tmp/refs.bib\",\"key\":\"master_b\"},\"match\":{\"kind\":\"unchanged\",\"key\":\"master_b\",\"existing\":[]}}"
+                     "")))
+                ((symbol-function 'citekeep--refresh-file-buffer) #'ignore)
+                ((symbol-function 'citekeep--insert-cite)
+                 (lambda (_marker _command key) (setq inserted key))))
+        (citekeep--search-take
+         '((year . "2019")
+           (title . "Adaptive estimation")
+           (entry . "@article{remote}")
+           (match . ((kind . "conflict")
+                     (reason . "matches several entries")
+                     (existing . (((key . "master_a"))
+                                  ((key . "master_b")))))))
+         "/tmp/refs.bib" marker "citep")
+        (should (member "same" captured))
+        (should (member "--target" captured))
+        (should (member "master_b" captured))
+        (should (equal inserted "master_b"))
+        (should-not (marker-buffer marker))))))
+
 (ert-deftest citekeep-test-field-arbitration-produces-explicit-sync-arguments ()
   (let ((conflicts '(((local_key . "Smi23")
                       (fields . (((name . "year")

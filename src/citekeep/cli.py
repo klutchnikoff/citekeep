@@ -140,9 +140,39 @@ def cmd_editor_add_record(args):
     local_records = duplicates.records(existing, target.name)
     match = catalog.classify_fetched(master_records, local_records, record)
 
+    if args.decision == "skip":
+        # A refusal does not depend on a classification. The editor asked
+        # about the conflict it saw at fetch time; if the files have moved
+        # since and nothing looks conflicted any more, the answer still
+        # stands — writing a record the user has just declined would be the
+        # worst possible reading of it.
+        match = library.Match("skip", record.key)
+    elif match.kind == "conflict" and args.decision:
+        # The synchroniser and this one-record editor operation ask the same
+        # identity question. Reuse its answer engine: in particular,
+        # ``distinct`` keeps existing keys stable and allocates the next free
+        # a/b/c suffix instead of teaching an editor its own key policy.
+        match = library.settle_match(
+            library.index((*master_records, *local_records)),
+            record,
+            match,
+            args.decision,
+            args.target,
+        )
+
     written = None
-    if match.kind != "conflict":
-        text, action = project.write_record(existing, entry, match.key)
+    if match.kind not in {"conflict", "skip"}:
+        # A fetched spelling is evidence, not a new canonical choice. When
+        # the work is already known, start from the chosen local/master record
+        # and let the online entry fill only its gaps. The next sync can then
+        # offer those additions upward without first finding disagreements
+        # manufactured by the fetch itself.
+        project_entry = (
+            library.completed(match.existing[0], record).raw
+            if match.existing
+            else entry
+        )
+        text, action = project.write_record(existing, project_entry, match.key)
         if action != "unchanged":
             write_atomically(target, text)
         written = {"file": str(target), "key": match.key, "action": action}
@@ -926,6 +956,10 @@ def build_parser():
     )
     editor_add.add_argument("--into", required=True, metavar="FILE")
     editor_add.add_argument("--library", help="path to the library")
+    editor_add.add_argument("--decision", choices=library.VERBS)
+    editor_add.add_argument(
+        "--target", help="canonical key selected by a 'same' decision"
+    )
     editor_add.add_argument("--json", action="store_true")
     editor_add.set_defaults(run=cmd_editor_add_record)
 

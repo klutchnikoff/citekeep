@@ -783,30 +783,73 @@ metadata."
 
 (defun citekeep--search-take (result file marker command)
   "File RESULT into FILE and cite it at MARKER with COMMAND."
-  (let ((match (citekeep--get result 'match)))
-    (if (equal (citekeep--get match 'kind) "conflict")
-        (citekeep--show-unclear (citekeep--get match 'reason)
-                                (citekeep--get result 'year)
-                                (citekeep--get result 'title)
-                                (citekeep--get match 'existing))
-      (pcase-let ((`(,code ,stdout ,stderr)
-                   (citekeep--call-with-input
-                    (citekeep--get result 'entry)
-                    (list "editor" "add-record"
-                          "--into" (expand-file-name file) "--json"))))
-        (if (or (= code 2) (string-empty-p (string-trim stdout)))
-            (message "citekeep: %s"
-                     (if (string-empty-p stderr) "no output" stderr))
-          (let* ((data (citekeep--parse stdout))
-                 (written (citekeep--get data 'written))
-                 (key (citekeep--get data 'match 'key)))
-            (citekeep--refresh-file-buffer file)
-            (citekeep--insert-cite marker command key)
-            (message "citekeep: %s %s in %s"
-                     (citekeep--get written 'action) key
-                     (file-name-nondirectory
-                      (citekeep--get written 'file)))))))
+  (let* ((match (citekeep--get result 'match))
+         (decision (and (equal (citekeep--get match 'kind) "conflict")
+                        (citekeep--online-decision match marker))))
+    (unless (eq decision citekeep--cancelled)
+      (let ((args (list "editor" "add-record"
+                        "--into" (expand-file-name file) "--json")))
+        (when decision
+          (setq args (append args (list "--decision" (car decision))))
+          (when (cdr decision)
+            (setq args (append args (list "--target" (cdr decision))))))
+        (pcase-let ((`(,code ,stdout ,stderr)
+                     (citekeep--call-with-input
+                      (citekeep--get result 'entry) args)))
+          (if (or (= code 2) (string-empty-p (string-trim stdout)))
+              (message "citekeep: %s"
+                       (if (string-empty-p stderr) "no output" stderr))
+            (let* ((data (citekeep--parse stdout))
+                   (resolved (citekeep--get data 'match))
+                   (kind (citekeep--get resolved 'kind))
+                   (written (citekeep--get data 'written))
+                   (key (citekeep--get resolved 'key)))
+              (cond
+               ((equal kind "conflict")
+                (citekeep--show-unclear
+                 (citekeep--get resolved 'reason)
+                 (citekeep--get result 'year)
+                 (citekeep--get result 'title)
+                 (citekeep--get resolved 'existing)))
+               ((equal kind "skip")
+                (message "citekeep: skipped %s" key))
+               (written
+                (citekeep--refresh-file-buffer file)
+                (citekeep--insert-cite marker command key)
+                (message "citekeep: %s %s in %s"
+                         (citekeep--get written 'action) key
+                         (file-name-nondirectory
+                          (citekeep--get written 'file))))))))))
     (set-marker marker nil)))
+
+(defun citekeep--online-decision (match marker)
+  "Ask how fetched MATCH relates to the library at MARKER.
+
+Return (VERB . TARGET), or `citekeep--cancelled'. The command line remains
+the authority for validating the answer and allocating a distinct key."
+  (citekeep--read-cancellable
+   marker
+   (lambda ()
+     (let* ((existing (citekeep--get match 'existing))
+            (same "Same work")
+            (distinct "Distinct work")
+            (skip "Skip")
+            (choice (completing-read
+                     (format "Identity conflict (%s): "
+                             (citekeep--get match 'reason))
+                     (append (when existing (list same))
+                             (list distinct skip))
+                     nil t)))
+       (cond
+        ((equal choice distinct) '("distinct"))
+        ((equal choice skip) '("skip"))
+        ((equal choice same)
+         (let ((keys (mapcar (lambda (record)
+                               (citekeep--get record 'key))
+                             existing)))
+           (cons "same"
+                 (when (> (length keys) 1)
+                   (completing-read "Same as which entry? " keys nil t))))))))))
 
 (defun citekeep--show-unclear (reason year title existing)
   "Show why a record was not filed, next to what it resembles."
