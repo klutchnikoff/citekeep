@@ -174,6 +174,34 @@ def test_a_contradictory_doi_is_a_conflict():
     assert plan.conflicts[0].reason == "several DOIs"
 
 
+def test_two_works_sharing_a_normalised_key_need_no_arbitration():
+    """Two 2020 papers by one author, both titled "Adaptive…".
+
+    Only the derived key linked them; their DOIs, titles and co-authors all
+    said otherwise. The question used to come back at every synchronisation,
+    and answering it changed nothing, since the keys were already distinct.
+    """
+    incoming = entry(
+        "one",
+        author="Bertin, Karine and Léon, Jose R.",
+        title="Adaptive density estimation on bounded domains",
+        year="2020",
+        doi="10.1214/20-EJS1682",
+    ) + entry(
+        "two",
+        author="Bertin, Karine and Panloup, Fabien",
+        title="Adaptive estimation of the stationary density",
+        year="2020",
+        doi="10.1007/s11203-020-09218-0",
+    )
+    plan = proposals(incoming, "%% master\n\n")
+    assert not plan.blocked
+    assert [addition.key for addition in plan.additions] == [
+        "bertin_adaptive_2020",
+        "bertin_adaptive_2020a",
+    ]
+
+
 def test_a_new_work_landing_on_a_used_key_is_a_conflict():
     """A safety net for a library whose keys are not normalised.
 

@@ -354,3 +354,121 @@ def test_summary_counts_what_a_merge_would_remove():
         "review": 0,
         "removed_if_all_merged": 2,
     }
+
+
+# --- refutation ----------------------------------------------------------
+#
+# Taken from a real library: two 2020 papers by the same first author whose
+# titles both begin "Adaptive". Nothing but the derived key linked them, and
+# that was enough to demand an arbitration at every synchronisation.
+
+
+BERTIN_ONE = entry(
+    "bertin_adaptive_2020",
+    author="Bertin, Karine and Klutchnikoff, Nicolas and Léon, Jose R.",
+    title="Adaptive density estimation on bounded domains under mixing conditions",
+    year="2020",
+    doi="10.1214/20-EJS1682",
+)
+
+BERTIN_TWO = entry(
+    "bertin_adaptive_2020a",
+    author="Bertin, Karine and Klutchnikoff, Nicolas and Panloup, Fabien",
+    title="Adaptive estimation of the stationary density of a stochastic "
+    "differential equation",
+    year="2020",
+    doi="10.1007/s11203-020-09218-0",
+)
+
+
+def test_different_dois_and_different_work_refute_each_other():
+    one, two = records(BERTIN_ONE, BERTIN_TWO)
+    assert duplicates.refuted(one, two)
+
+
+def test_one_title_and_one_authorship_under_two_dois_stays_a_question():
+    """A duplicate registration, or a journal and a conference version.
+
+    Refuting here would decide something only a person can.
+    """
+    one, two = records(
+        entry("a", title="Adaptive estimation", year="2019", doi="10.1/a"),
+        entry("b", title="Adaptive estimation", year="2019", doi="10.1/b"),
+    )
+    assert not duplicates.refuted(one, two)
+
+
+def test_a_shared_arxiv_identifier_outranks_two_dois():
+    """A preprint and the paper it became: two DOIs, one work."""
+    one, two = records(
+        entry(
+            "preprint",
+            title="On computable numbers",
+            year="2019",
+            doi="10.48550/arXiv.1901.00001",
+            eprint="1901.00001",
+            eprinttype="arXiv",
+        ),
+        entry(
+            "published",
+            title="On computable numbers, with an application",
+            year="2021",
+            doi="10.1214/21-AOS2000",
+            eprint="1901.00001",
+            eprinttype="arXiv",
+        ),
+    )
+    assert not duplicates.refuted(one, two)
+
+
+def test_a_missing_doi_refutes_nothing():
+    """Silence is not disagreement."""
+    one, two = records(
+        entry("a", title="Adaptive estimation", year="2019", doi="10.1/a"),
+        entry("b", title="Something else entirely", year="2019"),
+    )
+    assert not duplicates.refuted(one, two)
+
+
+def test_an_author_set_truncated_by_et_al_still_agrees():
+    one, two = records(
+        entry(
+            "full",
+            author="Doe, Jane and Roe, Richard and Poe, Paula",
+            title="Adaptive estimation",
+            year="2019",
+            doi="10.1/a",
+        ),
+        entry(
+            "short",
+            author="Doe, Jane and Roe, Richard",
+            title="Adaptive estimation",
+            year="2019",
+            doi="10.1/b",
+        ),
+    )
+    assert duplicates.describe_one_work(one, two)
+    assert not duplicates.refuted(one, two)
+
+
+def test_a_refuted_pair_forms_no_group():
+    """What `sync` treats as two works, the review file must not offer to merge."""
+    assert duplicates.find_groups(records(BERTIN_ONE, BERTIN_TWO)) == []
+
+
+def test_a_third_record_resembling_both_still_makes_one_group():
+    """Refutation removes an edge, not a record.
+
+    An entry compatible with two the evidence separates draws them back into
+    one group — and that group is a real question, not an artefact.
+    """
+    undecided = entry(
+        "bertin_adaptive_2020b",
+        author="Bertin, Karine",
+        title="Adaptive density estimation on bounded domains under mixing conditions",
+        year="2020",
+    )
+    groups = duplicates.find_groups(records(BERTIN_ONE, BERTIN_TWO, undecided))
+    assert len(groups) == 1
+    assert len(groups[0]) == 3
+    assert duplicates.coherence(groups[0]) == "several DOIs"

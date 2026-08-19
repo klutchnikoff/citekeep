@@ -83,6 +83,57 @@ def fingerprints(record):
         yield "title", (bib.surname(record.names[0]).lower(), record.signature)
 
 
+def _surnames(record):
+    return {bib.surname(name).lower() for name in record.names if name}
+
+
+def describe_one_work(one, other):
+    """True when title and authorship both point at a single work.
+
+    Titles are compared by the prefix rule, so that a recorded subtitle and an
+    omitted one still agree. Author sets are compared by containment rather
+    than equality: a source that stops at « et al. » holds a subset of the
+    truth, not a contradiction.
+    """
+    if not (one.signature and other.signature):
+        return False
+    if not bib.same_work({one.signature, other.signature}):
+        return False
+    mine, theirs = _surnames(one), _surnames(other)
+    if not mine or not theirs:
+        return False
+    return mine <= theirs or theirs <= mine
+
+
+def refuted(one, other):
+    """True when the evidence says these are two works rather than one.
+
+    Fingerprints can only ever bring records together; nothing in them can
+    push two apart, so the weakest resemblance used to outvote the strongest
+    contradiction. Identifiers can do better than agree — they can disagree.
+
+    Two records carrying different DOIs are, as a rule, two works: a paper and
+    its erratum, an article and its translation, a supplement and what it
+    supplements all resemble each other and each registers its own DOI.
+
+    The exception is when everything descriptive agrees as well. One title and
+    one authorship under two DOIs is a genuine puzzle — a duplicate
+    registration, a journal and a conference version — and a puzzle is a
+    question for a person, not something to settle here.
+
+    A shared arXiv identifier outranks all of it, because a preprint and the
+    paper it became carry two DOIs and are one work. It is the only signal
+    that survives a retitling and a change of year, so it is consulted first.
+
+    Silence is not disagreement: a record without a DOI refutes nothing.
+    """
+    if one.arxiv and other.arxiv:
+        return one.arxiv != other.arxiv
+    if one.doi and other.doi and one.doi != other.doi:
+        return not describe_one_work(one, other)
+    return False
+
+
 def find_groups(entries):
     """Group ENTRIES that may describe the same work.
 
@@ -94,6 +145,11 @@ def find_groups(entries):
     record linked by DOI to one variant and by title to another lands in one
     place rather than two; it is also why groups must be checked for internal
     coherence before anything is merged. See `coherence`.
+
+    A refuted pair is not joined. Refutation removes an edge, not a record:
+    two entries the evidence separates can still be drawn into one group by a
+    third that resembles both, and that group is a real question rather than
+    an artefact. See `refuted`.
     """
     parent = list(range(len(entries)))
 
@@ -108,10 +164,13 @@ def find_groups(entries):
         for print_ in fingerprints(record):
             buckets[print_].append(index)
     for members in buckets.values():
-        for other in members[1:]:
-            root_a, root_b = find(members[0]), find(other)
-            if root_a != root_b:
-                parent[root_a] = root_b
+        for position, one in enumerate(members):
+            for other in members[position + 1 :]:
+                if refuted(entries[one], entries[other]):
+                    continue
+                root_a, root_b = find(one), find(other)
+                if root_a != root_b:
+                    parent[root_a] = root_b
 
     grouped = collections.defaultdict(list)
     for index in range(len(entries)):

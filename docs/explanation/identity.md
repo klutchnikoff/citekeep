@@ -32,6 +32,38 @@ That second condition matters more than it looks. Two records with different
 DOIs are not one work, however similar their titles — that is exactly the
 shape of a paper and its corrigendum.
 
+## Evidence that separates
+
+The four signals above can only bring records together. On their own, the
+weakest resemblance outvotes the strongest contradiction — and the normalised
+key is a *derived name*, not bibliographic evidence at all. Two 2020 papers by
+one author whose titles both begin "Adaptive" would land on the same key, and
+that alone was enough to demand an arbitration at every synchronisation, one
+that answering could not settle because the keys were already distinct.
+
+So identifiers are allowed to disagree, in this order:
+
+1. **A shared arXiv identifier settles it: one work.** A preprint and the
+   paper it became carry two different DOIs, and nothing else survives the
+   retitling.
+2. **Otherwise, different DOIs mean different works.** A paper and its
+   erratum, an article and its translation, a supplement and what it
+   supplements: each registers its own DOI.
+3. **Unless everything descriptive agrees too.** One title and one authorship
+   under two DOIs is a genuine puzzle — a duplicate registration, a journal
+   version and a conference version — and a puzzle belongs to a person.
+
+Titles are compared by the prefix rule, so a recorded subtitle and an omitted
+one still agree. Author sets are compared by containment rather than equality:
+a source that stops at "et al." holds a subset of the truth, not a
+contradiction.
+
+A refutation removes a **link**, not a record. Two entries the evidence
+separates can still be drawn into one group by a third that resembles both,
+and that group is a real question rather than an artefact.
+
+Silence is not disagreement: a record carrying no DOI refutes nothing.
+
 ## The refusal
 
 A record with no title cannot be vouched for by anything. When nothing

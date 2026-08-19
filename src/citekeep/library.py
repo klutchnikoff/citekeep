@@ -195,12 +195,26 @@ def look_up(index_, record):
             if other not in found:
                 found.append(other)
 
+    # A fingerprint proposes a candidate; contradicting identifiers dispose of
+    # it. Without this, the normalised key — a derived name, not bibliographic
+    # evidence — was enough to raise a question that two different DOIs had
+    # already answered, every time the project was synchronised.
+    found = [other for other in found if not duplicates.refuted(other, record)]
+
     if not found:
         key = record.target
         # A key in use by an entry sharing no fingerprint is a different work
         # under the same name. The existing one cannot be renamed — references
         # to it exist — so this needs a decision.
         if key in index_.keys:
+            holder = index_.by_key.get(key)
+            # Unless the evidence already settled it: when the entry holding
+            # the name is refuted, "are these one work?" has been answered,
+            # and what remains is naming, which has a rule rather than a
+            # question. Two papers by one author in one year on one subject
+            # are ordinary, and should cost nobody an arbitration.
+            if holder is not None and duplicates.refuted(holder, record):
+                return Match("new", free_key(index_, key))
             return Match("conflict", key, reason="key already in use")
         return Match("new", key)
 
