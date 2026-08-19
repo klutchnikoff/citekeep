@@ -53,6 +53,25 @@ Runs the full project synchronisation and presents field arbitration in the
 editor when a verified local correction meets a different library value.
 Cancelling leaves both files untouched.
 
+Identity questions are asked in one of two ways, depending on how many there
+are. **A single question** is asked outright, in the same words
+`citekeep-fetch` uses. **Several** open `*citekeep resolve*`, where answers
+can be compared and revised before any of them is applied:
+
+| key | |
+|---|---|
+| `s` | same work — the library entry is completed from this one |
+| `d` | distinct work — it enters under a key of its own |
+| `k` | skip — an answer too: left out of this run, asked again next time |
+| `u` | unset — takes the answer back; the question is unanswered again |
+| `n` / `p` | go to the next / previous question |
+| `g` | redraw the list |
+| ++ctrl+c++ ++ctrl+c++ | apply every answer, then synchronise |
+| `q` | quit; nothing is written |
+
+Point picks the question, and applying refuses while any question is still
+unanswered — which is what separates `k` from `u`.
+
 ## Bindings
 
 citekeep installs no global bindings, on purpose: it does not know your

@@ -879,6 +879,10 @@ the authority for validating the answer and allocating a distinct key."
     (define-key map (kbd "u") #'citekeep-resolve-unset)
     (define-key map (kbd "n") #'citekeep-resolve-next)
     (define-key map (kbd "p") #'citekeep-resolve-previous)
+    ;; `special-mode' points g at `revert-buffer', which here looks for a file
+    ;; that does not exist and errors. Give it the meaning the key has in
+    ;; every other such buffer instead.
+    (define-key map (kbd "g") #'citekeep-resolve-refresh)
     (define-key map (kbd "C-c C-c") #'citekeep-resolve-apply)
     map)
   "Keymap for `citekeep-resolve-mode'.")
@@ -893,7 +897,18 @@ the authority for validating the answer and allocating a distinct key."
     (evil-set-initial-state 'citekeep-resolve-mode 'emacs)))
 
 (defconst citekeep--resolve-help
-  "  s same   d distinct   k skip   u unset   n/p move   C-c C-c apply   q quit")
+  "Point picks the question.  Answer them all, then apply.
+
+  s  same       one work: the library entry is completed from this one
+  d  distinct   another work: it enters under a key of its own
+  k  skip       an answer too: leave it out of this run, ask again next time
+  u  unset      take the answer back; the question counts as unanswered again
+
+  n / p         go to the next / previous question
+  g             redraw this list
+  C-c C-c       apply every answer, then synchronise; refused while one
+                question is still unanswered
+  q             quit; nothing is written")
 
 (defun citekeep--answer (key)
   (cdr (assoc key citekeep--answers)))
@@ -924,11 +939,17 @@ the authority for validating the answer and allocating a distinct key."
                   "    → unanswered\n\n"))
         (put-text-property start (point) 'citekeep-key key)))
     (goto-char (point-min))
-    (forward-line (1- line))))
+    (forward-line (1- line))
+    ;; On the first draw the restored line is the header, which carries no
+    ;; question: every advertised key would fail before the user had done
+    ;; anything. Land on the first question instead.
+    (unless (get-text-property (point) 'citekeep-key)
+      (goto-char (or (next-single-property-change (point) 'citekeep-key)
+                     (point))))))
 
 (defun citekeep--conflict-key-at-point ()
   (or (get-text-property (point) 'citekeep-key)
-      (user-error "citekeep: point is not on a question")))
+      (user-error "citekeep: point is not on a question — n and p move to one")))
 
 (defun citekeep--set-answer (verb &optional target)
   (let ((key (citekeep--conflict-key-at-point)))
@@ -964,6 +985,11 @@ the authority for validating the answer and allocating a distinct key."
   (interactive)
   (citekeep--set-answer nil))
 
+(defun citekeep-resolve-refresh ()
+  "Redraw the questions and the answers given so far."
+  (interactive)
+  (citekeep--draw-resolve))
+
 (defun citekeep-resolve-next ()
   "Move to the next question."
   (interactive)
@@ -998,11 +1024,22 @@ the authority for validating the answer and allocating a distinct key."
                   (length unanswered))))
   ;; Read every buffer-local value here, before anything switches buffer:
   ;; `with-temp-file' would see the global nil, and write an empty file.
-  (let ((file citekeep--resolve-file)
-        (root citekeep--resolve-root)
-        (decided (reverse citekeep--answers))
-        (buffer (current-buffer))
-        (answers (make-temp-file "citekeep-answers"))
+  (let* ((file citekeep--resolve-file)
+         (root citekeep--resolve-root)
+         (decided (reverse citekeep--answers))
+         (buffer (current-buffer))
+         (settled (citekeep--send-answers root file decided)))
+    (when (and settled (buffer-live-p buffer) (eq buffer (current-buffer)))
+      (quit-window t))
+    settled))
+
+(defun citekeep--send-answers (root file decided)
+  "Synchronise ROOT again, answering FILE's questions with DECIDED.
+
+DECIDED is an alist of (KEY VERB . TARGET), the shape the resolution buffer
+keeps. Shared with the single-question path, so that one answer and twenty
+travel by the same road."
+  (let ((answers (make-temp-file "citekeep-answers"))
         (settled nil))
     (unwind-protect
         (progn
@@ -1015,20 +1052,57 @@ the authority for validating the answer and allocating a distinct key."
           ;; questions must find its buffer still open.
           (setq settled (citekeep--sync-command root t answers file)))
       (delete-file answers))
-    (when (and settled (buffer-live-p buffer) (eq buffer (current-buffer)))
-      (quit-window t))
     settled))
+
+(defun citekeep--ask-identity (conflict)
+  "Ask about one identity CONFLICT.  Return (VERB . TARGET), or nil.
+
+The wording matches `citekeep-fetch''s question, because it is the same
+question."
+  (let* ((incoming (citekeep--get conflict 'incoming))
+         (existing (citekeep--get conflict 'existing))
+         (title (or (citekeep--get incoming 'title)
+                    (citekeep--get incoming 'key)))
+         (same "Same work — complete the library entry from this one")
+         (distinct "Distinct work — enter it under a key of its own")
+         (skip "Skip — leave it out of this synchronisation")
+         (choice (completing-read
+                  (format "%s [%s]: "
+                          (truncate-string-to-width title 60 nil nil "…")
+                          (citekeep--get conflict 'reason))
+                  (append (when existing (list same)) (list distinct skip))
+                  nil t)))
+    (cond
+     ((equal choice distinct) '("distinct"))
+     ((equal choice skip) '("skip"))
+     ((equal choice same)
+      (let ((keys (mapcar (lambda (record) (citekeep--get record 'key))
+                          existing)))
+        (cons "same"
+              (when (> (length keys) 1)
+                (completing-read "Same as which entry? " keys nil t))))))))
 
 (defun citekeep--open-resolve (root file conflicts)
   "Ask about identity CONFLICTS raised while synchronising FILE below ROOT."
-  (with-current-buffer (get-buffer-create "*citekeep resolve*")
-    (citekeep-resolve-mode)
-    (setq citekeep--conflicts conflicts
-          citekeep--answers nil
-          citekeep--resolve-root root
-          citekeep--resolve-file file)
-    (citekeep--draw-resolve)
-    (pop-to-buffer (current-buffer))))
+  ;; One question does not need a buffer to be reviewed in: ask it the way
+  ;; `citekeep-fetch' does. The buffer earns its weight from the second
+  ;; question onwards, where answers are compared and revised before any of
+  ;; them is applied.
+  (if (= (length conflicts) 1)
+      (let* ((conflict (car conflicts))
+             (key (citekeep--get conflict 'incoming 'key))
+             (answer (citekeep--ask-identity conflict)))
+        (when answer
+          (citekeep--send-answers
+           root file (list (cons key (cons (car answer) (cdr answer)))))))
+    (with-current-buffer (get-buffer-create "*citekeep resolve*")
+      (citekeep-resolve-mode)
+      (setq citekeep--conflicts conflicts
+            citekeep--answers nil
+            citekeep--resolve-root root
+            citekeep--resolve-file file)
+      (citekeep--draw-resolve)
+      (pop-to-buffer (current-buffer)))))
 
 (provide 'citekeep)
 ;;; citekeep.el ends here

@@ -337,3 +337,77 @@
 
 (provide 'citekeep-tests)
 ;;; citekeep-tests.el ends here
+
+(defconst citekeep-test--one-conflict
+  '(((reason . "several DOIs")
+     (incoming . ((key . "bertin_adaptive_2020a")
+                  (year . "2020")
+                  (title . "Adaptive estimation of the stationary density")))
+     (existing . (((key . "bertin_adaptive_2020")
+                   (year . "2020")
+                   (title . "Adaptive density estimation on bounded domains"))))))
+  "One identity conflict, shaped as the sync command reports it.")
+
+(ert-deftest citekeep-test-resolve-buffer-opens-on-the-first-question ()
+  "The header carries no question; landing there makes every key fail."
+  (with-current-buffer (get-buffer-create "*citekeep resolve test*")
+    (citekeep-resolve-mode)
+    (setq citekeep--conflicts (append citekeep-test--one-conflict
+                                      citekeep-test--one-conflict)
+          citekeep--answers nil
+          citekeep--resolve-file "/tmp/nk.bib")
+    (citekeep--draw-resolve)
+    (should (equal (get-text-property (point) 'citekeep-key)
+                   "bertin_adaptive_2020a"))))
+
+(ert-deftest citekeep-test-resolve-buffer-answers-the-question-at-point ()
+  (with-current-buffer (get-buffer-create "*citekeep resolve test*")
+    (citekeep-resolve-mode)
+    (setq citekeep--conflicts citekeep-test--one-conflict
+          citekeep--answers nil
+          citekeep--resolve-file "/tmp/nk.bib")
+    (citekeep--draw-resolve)
+    (citekeep-resolve-distinct)
+    (should (equal (citekeep--answer "bertin_adaptive_2020a") '("distinct")))
+    (citekeep-resolve-unset)
+    (should-not (citekeep--answer "bertin_adaptive_2020a"))))
+
+(ert-deftest citekeep-test-a-single-conflict-is-asked-without-a-buffer ()
+  "One question is asked outright; the buffer is for comparing several."
+  (let (sent)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _arguments)
+                 "Distinct work — enter it under a key of its own"))
+              ((symbol-function 'citekeep--send-answers)
+               (lambda (_root _file decided) (setq sent decided) t)))
+      (citekeep--open-resolve "/tmp" "/tmp/nk.bib" citekeep-test--one-conflict)
+      (should (equal sent '(("bertin_adaptive_2020a" . ("distinct")))))
+      (should-not (get-buffer "*citekeep resolve*")))))
+
+(ert-deftest citekeep-test-several-conflicts-open-the-buffer ()
+  (let ((citekeep--conflicts nil))
+    (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+      (citekeep--open-resolve "/tmp" "/tmp/nk.bib"
+                              (append citekeep-test--one-conflict
+                                      citekeep-test--one-conflict))
+      (should (get-buffer "*citekeep resolve*"))
+      (kill-buffer "*citekeep resolve*"))))
+
+(ert-deftest citekeep-test-resolve-help-documents-every-binding ()
+  "A key the buffer does not name is a key nobody presses."
+  (dolist (key '("s" "d" "k" "u" "n" "p" "g" "C-c C-c" "q"))
+    (should (string-match-p (regexp-quote key) citekeep--resolve-help))))
+
+(ert-deftest citekeep-test-resolve-g-redraws-instead-of-erroring ()
+  "`special-mode' aims g at `revert-buffer', which has no file to revert."
+  (with-current-buffer (get-buffer-create "*citekeep resolve test*")
+    (citekeep-resolve-mode)
+    (setq citekeep--conflicts citekeep-test--one-conflict
+          citekeep--answers nil
+          citekeep--resolve-file "/tmp/nk.bib")
+    (citekeep--draw-resolve)
+    (should (eq (key-binding (kbd "g")) #'citekeep-resolve-refresh))
+    (citekeep-resolve-distinct)
+    (call-interactively #'citekeep-resolve-refresh)
+    (should (equal (citekeep--answer "bertin_adaptive_2020a") '("distinct")))))
+
